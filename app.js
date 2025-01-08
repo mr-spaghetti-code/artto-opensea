@@ -33,6 +33,15 @@ const chainToRpcUrl = {
   Shape: "https://shape-mainnet.g.alchemy.com/v2/"
 };
 
+// Chain to WETH contract address mapping
+const chainToWethAddress = {
+  Ethereum: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+  Base: "0x4200000000000000000000000000000000000006",
+  Zora: "0x4200000000000000000000000000000006",
+  Shape: "0x4200000000000000000000000000000006"
+};
+
+
 // Example POST request:
 /*
 curl -X POST http://localhost:3001/make-offer \
@@ -96,6 +105,135 @@ app.post("/make-offer", authenticateRequest, async (req, res) => {
 
   } catch (error) {
     console.error("Error creating offer:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post("/sell-nft", authenticateRequest, async (req, res) => {
+  const { chain, tokenAddress, tokenId, startAmount } = req.body;
+
+  if (!chain || !tokenAddress || !tokenId || !startAmount) {
+    return res.status(400).json({
+      success: false,
+      error: "Missing required parameters: chain, tokenAddress, tokenId, and startAmount are required"
+    });
+  }
+
+  const rpcUrl = chainToRpcUrl[chain];
+  if (!rpcUrl) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid chain specified"
+    });
+  }
+
+  const provider = new ethers.JsonRpcProvider(rpcUrl + process.env.ALCHEMY_ID);
+  const walletWithProvider = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+
+  try {
+    const openseaSDK = new OpenSeaSDK(walletWithProvider, {
+      chain: Chain[chain],
+      apiKey: process.env.OPENSEA_API_KEY,
+    });
+
+    const accountAddress = process.env.ARTTO_WALLET_ADDRESS;
+
+    // Expire this sale thirty days from now.
+    const expirationTime = Math.round(Date.now() / 1000 + 60 * 60 * 24 * 30);
+
+    const listing = await openseaSDK.createListing({
+      asset: {
+        tokenId,
+        tokenAddress,
+      },
+      accountAddress,
+      startAmount,
+      expirationTime,
+    });
+
+    // Convert BigInt values to strings in the listing object
+    const serializableListing = JSON.parse(JSON.stringify(listing, (key, value) =>
+      typeof value === 'bigint' ? value.toString() : value
+    ));
+
+    return res.json({
+      success: true,
+      listing: serializableListing
+    });
+
+  } catch (error) {
+    console.error("Error creating listing:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// New endpoint for creating NFT auctions
+app.post("/create-auction", authenticateRequest, async (req, res) => {
+  const { chain, tokenAddress, tokenId, startAmount } = req.body;
+
+  if (!chain || !tokenAddress || !tokenId || startAmount === undefined) {
+    return res.status(400).json({
+      success: false,
+      error: "Missing required parameters: chain, tokenAddress, tokenId, and startAmount are required"
+    });
+  }
+
+  const rpcUrl = chainToRpcUrl[chain];
+  if (!rpcUrl) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid chain specified"
+    });
+  }
+
+  const provider = new ethers.JsonRpcProvider(rpcUrl + process.env.ALCHEMY_ID);
+  const walletWithProvider = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+
+  try {
+    const openseaSDK = new OpenSeaSDK(walletWithProvider, {
+      chain: Chain[chain],
+      apiKey: process.env.OPENSEA_API_KEY,
+    });
+
+    const accountAddress = process.env.ARTTO_WALLET_ADDRESS;
+
+    // Expire this auction thirty days from now.
+    const expirationTime = Math.round(Date.now() / 1000 + 60 * 60 * 24 * 30);
+
+    // Create an auction to receive Wrapped Ether (WETH)
+    const paymentTokenAddress = chainToWethAddress[chain];
+    const englishAuction = true;
+
+    const auction = await openseaSDK.createListing({
+      asset: {
+        tokenId,
+        tokenAddress,
+      },
+      accountAddress,
+      startAmount,
+      expirationTime,
+      paymentTokenAddress,
+      englishAuction,
+    });
+
+    // Convert BigInt values to strings in the auction object
+    const serializableAuction = JSON.parse(JSON.stringify(auction, (key, value) =>
+      typeof value === 'bigint' ? value.toString() : value
+    ));
+
+    return res.json({
+      success: true,
+      auction: serializableAuction
+    });
+
+  } catch (error) {
+    console.error("Error creating auction:", error);
     return res.status(500).json({
       success: false,
       error: error.message
